@@ -52,7 +52,7 @@ export async function createVerification(phone: string): Promise<Verification> {
   const res = await fetch(`${BASE}/sessions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ phone, text: generateCode() }),
+    body: JSON.stringify({ phone, text: generateCode(), "responseSms": "Astral.mn: Verification received. Welcome!"  }),
     cache: "no-store",
   });
   if (res.status === 401) throw new VerifyError("verify.mn rejected the API key", 401);

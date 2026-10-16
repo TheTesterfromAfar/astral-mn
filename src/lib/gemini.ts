@@ -57,6 +57,35 @@ Rules:
 - Moon and rising signs are estimates because no ephemeris data is supplied. If birth time is missing, set risingSign to null. If you are not reasonably confident about the moon sign, set it to null rather than guessing.
 - Keep each text field to 2 to 4 sentences. strengths, challenges and focus have 3 short items each.`;
 
+// Helper function to handle 503 high demand spikes with exponential backoff
+async function generateWithRetry(ai: GoogleGenAI, prompt: string, retries = 3, delay = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: SYSTEM,
+          responseMimeType: "application/json",
+          responseSchema,
+          temperature: 0.9,
+        },
+      });
+    } catch (error: any) {
+      // Check if it's a 503 Service Unavailable or 429 Rate Limit error
+      const status = error?.status;
+      if ((status === 503 || status === 429) && i < retries - 1) {
+        console.warn(`Gemini model busy (${status}). Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay *= 2; // Double the wait time for the next retry
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error("Failed to generate reading after maximum retries.");
+}
+
 export async function generateReading(p: BirthProfile): Promise<Reading> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
@@ -75,16 +104,7 @@ Place of birth: ${p.city}
 
 Write: a one-line headline for today, today's horoscope with a one-word mood, this week's horoscope with three focus points, a personality and astrological profile (overview, strengths, challenges), and love, career and health sections, each with an insight and one piece of advice.`;
 
-  const res = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      systemInstruction: SYSTEM,
-      responseMimeType: "application/json",
-      responseSchema,
-      temperature: 0.9,
-    },
-  });
+  const res = await generateWithRetry(ai, prompt);
 
   const parsed = readingSchema.parse(JSON.parse(res.text ?? ""));
   parsed.sunSign = sunSign(p.dob); // never trust the model over the deterministic value
