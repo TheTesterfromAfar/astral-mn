@@ -1,0 +1,141 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { glyphFor } from "@/lib/zodiac";
+import type { Reading } from "@/lib/gemini";
+
+type Tab = "today" | "week" | "profile" | "love" | "career" | "health";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "week", label: "This week" },
+  { id: "profile", label: "Profile" },
+  { id: "love", label: "Love" },
+  { id: "career", label: "Career" },
+  { id: "health", label: "Health" },
+];
+
+function Card({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-night-700 bg-night-900/70 p-6 backdrop-blur">
+      {title && <h3 className="mb-2 font-display text-xl text-gold-400">{title}</h3>}
+      <div className="leading-relaxed text-moon-300">{children}</div>
+    </section>
+  );
+}
+
+function List({ items }: { items: string[] }) {
+  return (
+    <ul className="list-disc space-y-1 pl-5 marker:text-gold-500">
+      {items.map((i) => <li key={i}>{i}</li>)}
+    </ul>
+  );
+}
+
+function Placement({ label, sign }: { label: string; sign?: string | null }) {
+  return (
+    <div className="rounded-xl border border-night-700 bg-night-900/70 px-4 py-3">
+      <div className="text-sm text-moon-500">{label}</div>
+      <div className="font-display text-2xl text-moon-100">
+        <span className="mr-2 text-gold-500" aria-hidden>{glyphFor(sign)}&#xFE0E;</span>
+        {sign ?? "Needs birth time"}
+      </div>
+    </div>
+  );
+}
+
+export function ReadingView({ name }: { name?: string }) {
+  const [data, setData] = useState<Reading | null>(null);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState<Tab>("today");
+
+  const load = useCallback(async () => {
+    setData(null);
+    setError("");
+    try {
+      const res = await fetch("/api/reading", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setData(json);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Something went wrong.");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (error) {
+    return (
+      <div role="alert" className="rounded-2xl border border-night-700 bg-night-900/70 p-6">
+        <p className="mb-4 text-moon-300">{error}</p>
+        <button onClick={load} className="rounded-lg bg-gold-500 px-4 py-2 font-semibold text-night-950 hover:bg-gold-400">Try again</button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div aria-live="polite" aria-busy="true" className="space-y-4">
+        <p className="text-moon-300">Reading the sky{name ? ` for ${name}` : ""}. This takes a few seconds.</p>
+        {[0, 1, 2].map((i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-night-800/60" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Placement label="Sun" sign={data.sunSign} />
+        <Placement label="Moon (estimate)" sign={data.moonSign} />
+        <Placement label="Rising (estimate)" sign={data.risingSign} />
+      </div>
+
+      <div role="tablist" aria-label="Reading sections" className="flex gap-1 overflow-x-auto border-b border-night-700">
+        {TABS.map((t) => (
+          <button
+            key={t.id} role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls="panel"
+            onClick={() => setTab(t.id)}
+            className={`whitespace-nowrap border-b-2 px-4 py-2 transition ${
+              tab === t.id ? "border-gold-500 text-gold-400" : "border-transparent text-moon-500 hover:text-moon-300"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div role="tabpanel" id="panel" aria-labelledby={`tab-${tab}`} className="space-y-4">
+        {tab === "today" && (
+          <>
+            <p className="font-display text-3xl text-moon-100">{data.headline}</p>
+            <Card title={`Mood: ${data.daily.mood}`}>{data.daily.summary}</Card>
+          </>
+        )}
+        {tab === "week" && (
+          <>
+            <Card title="The week ahead">{data.weekly.summary}</Card>
+            <Card title="Where to focus"><List items={data.weekly.focus} /></Card>
+          </>
+        )}
+        {tab === "profile" && (
+          <>
+            <Card title="Who you are">{data.profile.overview}</Card>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card title="Strengths"><List items={data.profile.strengths} /></Card>
+              <Card title="Growth edges"><List items={data.profile.challenges} /></Card>
+            </div>
+          </>
+        )}
+        {(tab === "love" || tab === "career" || tab === "health") && (
+          <>
+            <Card title="Insight">{data[tab].insight}</Card>
+            <Card title="Advice">{data[tab].advice}</Card>
+          </>
+        )}
+      </div>
+
+      <p className="text-sm text-moon-500">
+        Readings are generated by AI for reflection and entertainment. Health notes are about everyday wellbeing, not medical advice.
+      </p>
+    </div>
+  );
+}
